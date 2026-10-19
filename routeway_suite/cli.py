@@ -7,6 +7,7 @@ import sys
 from typing import Optional
 from .client import RoutewayClient
 from .auth_helper import RoutewayAuthHelper
+from .registrar import RoutewayRegistrar
 
 CONFIG_PATH = os.path.expanduser("~/.routeway_config.json")
 
@@ -234,6 +235,44 @@ def cmd_oauth_link(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_register(args: argparse.Namespace) -> None:
+    print("\n" + "=" * 70)
+    print("         🚀 ROUTEWAY AUTOMATED EMAIL REGISTRATION")
+    print("=" * 70)
+
+    email = args.email
+    proxy = args.proxy or os.getenv("ROUTEWAY_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
+
+    if not email:
+        print("[!] Please specify an email with -e / --email <EMAIL>.")
+        print("[!] Note: Routeway blocks @gmail.com for email OTP (requires Google SSO).")
+        sys.exit(1)
+
+    if email.lower().endswith("@gmail.com"):
+        print("[!] Routeway blocks @gmail.com on direct email OTP (requires Google SSO).")
+        print("[!] Please provide a non-Gmail address (Outlook, custom domain, tempmail, etc.).")
+        sys.exit(1)
+
+    if proxy:
+        print(f"[*] Using Proxy: {proxy.split('@')[-1] if '@' in proxy else proxy}")
+    else:
+        print("[i] No proxy provided. If datacenter IP is detected, hCaptcha may show a visual challenge.")
+
+    registrar = RoutewayRegistrar(proxy=proxy)
+
+    async def get_otp_code():
+        print("\n[*] Waiting for OTP code from inbox...")
+        code = input("Enter 6-digit code received in email: ").strip()
+        return code
+
+    try:
+        res = asyncio.run(registrar.run_email_registration(email=email, otp_callback=get_otp_code))
+        print(f"[✓] Registration result: {res}")
+    except Exception as e:
+        print(f"[x] Registration error: {e}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Routeway Suite — Unified CLI for 280+ AI models, image gen, and key management."
@@ -281,6 +320,11 @@ def main():
     p_oa = subparsers.add_parser("oauth-link", help="Generate 1-click OAuth login link")
     p_oa.add_argument("--provider", "-p", default="github", choices=["github", "google", "discord"])
 
+    # register
+    p_reg = subparsers.add_parser("register", help="Automated registration with Camoufox and proxy")
+    p_reg.add_argument("--email", "-e", required=True, help="Email address (non-Gmail)")
+    p_reg.add_argument("--proxy", "-x", help="Proxy URL (http://user:pass@host:port)")
+
     args = parser.parse_args()
 
     if not args.subcommand:
@@ -295,6 +339,7 @@ def main():
         "chat": cmd_chat,
         "image": cmd_image,
         "oauth-link": cmd_oauth_link,
+        "register": cmd_register,
     }
 
     dispatch[args.subcommand](args)
